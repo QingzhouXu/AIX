@@ -17,7 +17,11 @@ def load_dotenv(dotenv_path: str = ".env", override: bool = False) -> bool:
         是否成功找到并加载 .env 文件
     """
     if not os.path.exists(dotenv_path):
-        return False
+        # 兼容：仓库可能提供了 .env.zhipuai 作为示例配置
+        if dotenv_path == ".env" and os.path.exists(".env.zhipuai"):
+            dotenv_path = ".env.zhipuai"
+        else:
+            return False
 
     with open(dotenv_path, "r", encoding="utf-8") as env_file:
         for raw_line in env_file:

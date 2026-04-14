@@ -79,33 +79,62 @@ class ChatDataProcessor:
         Returns:
             问答对列表，每条包含 question, answer, category 字段
         """
-        qa_pairs = []
+        qa_pairs: List[Dict] = []
         i = 0
 
-        while i < len(chat_records) - 1:
+        def role_of(msg: Dict) -> str:
+            return (msg.get("role") or "").strip().lower()
+
+        while i < len(chat_records):
             current = chat_records[i]
-            next_msg = chat_records[i + 1]
-
-            # 匹配 客户提问 -> 商家回答 的模式
-            if (
-                current.get("role") == "customer"
-                and next_msg.get("role") == "merchant"
-            ):
-                question = self.clean_text(current.get("content", ""))
-                answer = self.clean_text(next_msg.get("content", ""))
-
-                # 过滤无效问答对
-                if question and answer and len(question) >= 2 and len(answer) >= 4:
-                    category = self.classify_question(question)
-                    qa_pairs.append({
-                        "question": question,
-                        "answer": answer,
-                        "category": category,
-                    })
-
-                i += 2  # 跳过已配对的商家回复
-            else:
+            if role_of(current) != "customer":
                 i += 1
+                continue
+
+            question = self.clean_text(current.get("content", ""))
+            if not question or len(question) < 2:
+                i += 1
+                continue
+
+            # 从当前 customer 往后找第一条 merchant 回复；允许中间夹杂其它角色/空内容
+            j = i + 1
+            answer_parts: List[str] = []
+            found_merchant = False
+
+            while j < len(chat_records):
+                msg = chat_records[j]
+                r = role_of(msg)
+                content = self.clean_text(msg.get("content", ""))
+
+                # 下一条客户出现：结束本轮查找（不跨客户配对）
+                if r == "customer":
+                    break
+
+                if r == "merchant" and content:
+                    found_merchant = True
+                    answer_parts.append(content)
+                else:
+                    # 其它角色/系统提示/空行：忽略
+                    pass
+
+                # 一旦找到商家回复后，继续合并后续连续的商家回复；
+                # 如果后面再出现客户，就会在上面 break
+                j += 1
+
+            if found_merchant:
+                answer = self.clean_text(" ".join(answer_parts))
+                if answer and len(answer) >= 4:
+                    category = self.classify_question(question)
+                    qa_pairs.append(
+                        {
+                            "question": question,
+                            "answer": answer,
+                            "category": category,
+                        }
+                    )
+
+            # 指针移动到本轮结束位置：如果遇到下一条 customer，就从那里继续
+            i = j
 
         self._qa_pairs = qa_pairs
         return qa_pairs
